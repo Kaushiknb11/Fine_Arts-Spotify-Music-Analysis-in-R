@@ -1,0 +1,360 @@
+---
+title: "Spotify Music Analysis"
+author:
+  - Kaushik Narasimha Bukkapatnam
+  - Jonathan Olavarria
+  - Katrina Arbogast
+  - Varad Luktuke
+  - Napathsawan Poopaiboon
+  - Sudha Ramakrishnan
+date: '2022-12-07'
+format: pdf
+editor: visual
+---
+
+# Final Project Report
+
+# Team - Fine Arts: Art and Music
+
+# Introduction
+
+Over the past few decades, there have been significant changes in the way the media arts are consumed. Everything from the projects that are produced, how they are produced, and the user experience has undergone an astonishing transformation in this new era of fast and limitless digital access. The media firms and individuals that have thrived and sustained are those that realized early on that usage trends and user attraction are the crucial elements to get a competitive edge over the competition.
+
+Spotify is the industry leader in music streaming services, with over 100 million users and a market share of more than 31% among those who subscribe to online music. This motivated us to go further into the Spotify song database in order to uncover intriguing relationships between the songs and the artists as well as to gather insightful knowledge.
+
+# Problem Statement
+
+Music Data Analysis: If I were a struggling music producer and looking to produce my next music, what genres of music should I be targeting to produce based on the current market trends and are there any track features that have an impact on the popularity of the track.
+
+# The approach
+
+A two-fold approach is taken here :
+
+-   An overview of the genres and the artists
+
+-   An attempt to compute the track popularity based on its features
+
+# Data in scope
+
+The data in scope is from the Spotify music platform that was extracted using spotify API. The Spotify Web API provides artist, album, and track data, as well as audio features and analysis, all easily accessible via the R package spotifyr. Each music track has 23 audio attributes recorded, including descriptors like duration, tempo, key, and mode as well as confidence indicators like acousticness, liveness, speechiness, and instrumentalness as well as perceptual indicators like energy, loudness, danceability, and valence (positiveness). The data used for this analysis is a dataset of over 30,000 songs obtained from GitHub. To learn more about the data, visit <https://github.com/rfordatascience/tidytuesday/tree/master/data/2020/2020-01-21>
+
+#### Packages, Libraries and Data Input
+
+```{r install_packages, echo=FALSE, results=FALSE}
+install.packages("knitr",repos = "http://cran.us.r-project.org")
+install.packages("tidyverse",repos = "http://cran.us.r-project.org")
+install.packages("dplyr",repos = "http://cran.us.r-project.org")
+install.packages("ggplot2",repos = "http://cran.us.r-project.org")
+install.packages("gridExtra",repos = "http://cran.us.r-project.org")
+install.packages("reshape2",repos = "http://cran.us.r-project.org")
+```
+
+```{r Libraries}
+suppressPackageStartupMessages(library(knitr))#Used to create a document that is a mixture of text and some chunks of code
+suppressPackageStartupMessages(library(tidyverse))#for Data manipulation and Wrangling tasks
+suppressPackageStartupMessages(library(dplyr))#for Data manipulation and Wrangling tasks
+suppressPackageStartupMessages(library(ggplot2))#for effective visualizations
+suppressPackageStartupMessages(library(gridExtra))#for effective visualizations
+suppressPackageStartupMessages(library(reshape2))#used to melt the correlation matrix
+```
+
+#### Reading in the data
+
+```{r Data}
+#Ceating a "spotify_songs" dataframe by reading the data
+spotify_songs <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-01-21/spotify_songs.csv')
+spotify_songs
+#getting the dimensions of the dataset
+dim(spotify_songs)
+#take a quick look
+summary(spotify_songs)
+```
+
+**Observation:** There are a total of 32833 rows and 23 columns in the data
+
+#### Lets look at what each attribute denotes-
+
+```{r attributes}
+#Creating a dataframe to hold the information about the attributes of the data
+url <- 'https://raw.githubusercontent.com/vpcincin/DataWrangling/main/Data_Dictionary.csv'
+spotify_attributes <- readr::read_csv(url)
+print(spotify_attributes, n = 23)
+```
+
+We get the description of each variable and its class for understanding our data
+
+#### Checking for null values
+
+```{r null_values}
+#getting the count of total null values in data 
+sum(is.na(spotify_songs))
+#checking the null values by columns
+colSums(is.na(spotify_songs))
+```
+
+**Observation:** We see a total of 15 null values in the dataset. When checked deeper on the column level, we see that there are a total of 5 missing values for each of the columns- 'track_name', 'track_artist', 'track_album_name'.
+
+#### Checking for variable types
+
+```{r var_types}
+# checking variable types for consistencies 
+str(spotify_songs[])
+```
+
+**Observations:** The attribute 'mode' currently has a numeric field, however it is supposed to be a Boolean/factor variable, as it has values{0,1} The attribute 'track_album_release_date' is currently a character column but it is supposed to be a field with date values
+
+It is important for us to change the type of these variables as they may be important for our analysis.
+
+#### Cleaning the data (dealing with null values and modifying datatypes)
+
+We previously inspected a total of 5 missing values each for the 'track_name', 'track_artist' and 'track_album_name' attributes. Let us impute these missing values by a constant value 'unknown' as these parameters would not be impacting our analysis since we are not focusing on these three attributes and moreover it is a very small fraction of the dataset.
+
+Also, we will be changing the datatypes of the two attributes to the required type that we observed to be incorrect
+
+```{r cleaning}
+
+#Missing Value Treatment
+spotify_songs$track_artist[is.na(spotify_songs$track_artist)] <- 'unknown'
+spotify_songs$track_album_name[is.na(spotify_songs$track_album_name)] <- 'unknown'
+spotify_songs$track_name[is.na(spotify_songs$track_name)] <- 'unknown'
+#check
+sum(is.na(spotify_songs))
+
+#Modyfying Data types
+spotify_songs$mode <- as.factor(spotify_songs$mode)
+spotify_songs$track_album_release_date <- as.Date(spotify_songs$track_album_release_date)
+#check
+class(spotify_songs$mode)
+class(spotify_songs$track_album_release_date)
+
+```
+
+## Exploratory Data Analysis
+
+Firstly, we start by looking at the number of tracks in each genre to find out which genre has most number of releases.
+
+```{r genres}
+spotify_songs %>% group_by(Genre = playlist_genre) %>%
+  summarise(No_of_tracks = n()) %>% arrange(desc(No_of_tracks)) %>% knitr::kable()
+
+spotify_genres <- spotify_songs %>% group_by(Genre = playlist_genre) %>%
+  summarise(No_of_tracks = n()) %>% arrange(desc(No_of_tracks)) %>% 
+  ggplot(aes(x = Genre, y = No_of_tracks, fill = Genre)) +
+        geom_bar(stat = "identity") +
+        labs(title = "Most Popular Genre", x = "Genre", y = "Number of Tracks")
+
+spotify_genres
+```
+
+**Observation:** EDM songs quantify the most part of the data followed by rap and then pop depicting the listening trends for the respective genres. This indicates that most of the users listen to EDM music followed by Rap music.
+
+Then we look at the number of songs released by each artist:
+
+```{r artists}
+# artists with most releases
+most_releases <- spotify_songs %>% group_by(Artist = track_artist) %>%
+  summarise(No_of_tracks = n()) %>%
+  arrange(desc(No_of_tracks)) %>%
+  top_n(15, wt = No_of_tracks) %>% 
+  ggplot(aes(x = Artist, y = No_of_tracks, fill = Artist)) +
+        geom_bar(stat = "identity") +
+        coord_flip() + 
+  labs(title = "Popular Artists", x = "Artist", y = "Number of Tracks")
+
+most_releases
+```
+
+**Observation:** With more than 150 songs Martin Garrix has been the most listened artist in this span followed by the band Queen with around 130 songs.
+
+One of the main parameters of a song would be valence. It is a parameter to indicate musical positiveness conveyed by a track. Tracks with high valence sound more positive (e.g. happy, cheerful, euphoric), while tracks with low valence sound more negative (e.g. sad, depressed, angry). We look into the general trend of musical positiveness of tracks by plotting them against energy.
+
+```{r valence}
+valence <- spotify_songs %>% 
+  ggplot(aes(x= valence, y= energy, color= track_name)) +
+  geom_jitter(show.legend = FALSE) +
+  geom_vline(xintercept = 0.5) +
+  geom_hline(yintercept = 0.5) +
+  scale_x_continuous(breaks= seq(0, 1, 0.25)) +
+  scale_y_continuous(breaks= seq(0, 1, 0.25)) +
+  labs(title= "How positive is the music listened by users?") +
+  theme_light()
+
+valence
+```
+
+**Observation:** As seen from the plot, most of the songs are on the left side, which means they are sad, depressed, or angry. However, many of those tracks have high energy which can be interpreted as fast, loud, and noisy. Yet, there are still many tracks on the upper right, which represents the happy and positive.
+
+Then we compared the popularity of songs by grouping them by genres to find out which genre would be more likely to gain popularity:
+
+```{r avg_pop_genre}
+Pop_acc_genre <-spotify_songs%>%
+  ggplot(aes(x=reorder(playlist_genre,track_popularity),y=track_popularity))+
+  geom_boxplot(fill="skyblue")+
+  ggtitle("Song Popularity by Genre")+
+  theme_light()
+Pop_acc_genre
+```
+
+**Observation:** The average song popularity index of pop songs is higher compared to the rest of the genres. Latin songs seconds the list.
+
+Next, we checked how duration of songs affected the popularity:
+
+```{r popularity_duration}
+
+Popularity_duration <-spotify_songs%>%
+  ggplot(aes(x=duration_ms,
+             y=track_popularity, color = duration_ms))+
+  geom_point()+
+  geom_vline(xintercept = quantile(spotify_songs$duration_ms, 0.25)) +
+  geom_vline(xintercept = quantile(spotify_songs$duration_ms, 0.75)) +
+  geom_hline(yintercept = mean(spotify_songs$track_popularity)) +
+  ggtitle("Song Popularity by Duration")+
+  theme_light()
+  
+Popularity_duration
+
+```
+
+**Observation:** Songs that are in the upper 50% of popularity tend to localize around the center of song duration. We can see that between 187819 ms and 253585 ms most songs tend to accumulate.
+
+Then we checked the correlation between track popularity and release date to find out whether the popularity of song is getting affected by the month it is released in:
+
+```{r top_pop_release_dates}
+
+top_dates_to_release <- spotify_songs %>% 
+  group_by(month = lubridate::floor_date(track_album_release_date, "month")) %>%
+  summarise(avg_pop = mean(track_popularity))%>%
+  filter(month >= '2019-01-01' & month < '2020-01-01')%>%
+  ggplot(aes(x = month, y = avg_pop, fill = month.name)) +
+        geom_bar(stat = "identity") +
+        geom_smooth(se = FALSE, fill="blue")+
+  labs(title = "Tracks Popularity based on the albums release month", 
+       x = 'Album Release Month',
+       y = 'Popularity')
+
+top_dates_to_release
+
+```
+
+**Observation:** The average track popularity for a given release month (in the year 2019), shows higher averages in months June through December compared to that of months January through May.
+
+#### Checking the outliers
+
+```{r outliers_pop}
+
+duration_boxplot <- spotify_songs %>%
+  ggplot()+
+  geom_boxplot(aes(duration_ms))
+
+loudness_boxplot <- spotify_songs %>%
+  ggplot() +
+  geom_boxplot(aes(loudness))
+
+tempo_boxplot <- spotify_songs %>%
+  ggplot() +
+  geom_boxplot(aes(tempo))
+
+danceability_boxplot <- spotify_songs %>%
+  ggplot() +
+  geom_boxplot(aes(danceability))
+
+grid.arrange(duration_boxplot, loudness_boxplot, tempo_boxplot, danceability_boxplot, nrow = 2)
+
+dq1 <- quantile(spotify_songs$duration_ms, 0.25)
+dq3 <- quantile(spotify_songs$duration_ms, 0.75)
+
+lq1 <- quantile(spotify_songs$loudness, 0.25)
+lq3 <- quantile(spotify_songs$loudness, 0.75)
+
+tq1 <- quantile(spotify_songs$tempo, 0.25)
+tq3 <- quantile(spotify_songs$tempo, 0.75)
+
+danceq1 <- quantile(spotify_songs$danceability, 0.25)
+danceq3 <- quantile(spotify_songs$danceability, 0.75)
+
+```
+
+**Observation:** For analysis we choose to look at these four variables for possible outliers, each of them indeed do have outliers. Duration, loudness, and tempo have outliers at both extremes, while danceability only has lower bound outliers.
+
+The First and Third Quartiles for the variables are:
+
+| Quantile | Duration (ms) | Loudness |  Tempo  | Danceability |
+|:--------:|:-------------:|:--------:|:-------:|:------------:|
+|   25%    |    187819     |  -8.171  |  99.96  |    0.563     |
+|   75%    |    253585     |  -4.645  | 133.918 |    0.761     |
+
+#### Plotting correlation heatmap
+
+We then proceeded to check the correlations between our key attributes in order to examine if any attribute in general has more effect on the track popularity
+
+```{r correlation}
+#In order to check for correlations, we need to first segregate the numerical attributes
+spotify_songs_num <- spotify_songs[,c(4,12,13,15,17,18,19,20,21,22,23)]
+summary(spotify_songs_num)
+head(spotify_songs_num, 5)
+
+#creating a correlation matrix restricting upto two decimal places
+cormat <- round(cor(spotify_songs_num),2)
+head(cormat)
+
+#melting the correlation matrix for plotting purpose
+melted_cormat <- melt(cormat)
+head(melted_cormat)
+
+#plotting the correlation matrix by using gradient fill
+melted_cormat %>% 
+ ggplot(aes(Var1, Var2, fill=value)) +
+ geom_tile() +
+ labs(x = NULL, y = NULL, fill = "Value", title="Correlation Matrix") + scale_fill_gradient2(mid="#FBFEF9",low="#0C6291",high="#A63446", limits=c(-1,1)) +
+ #geom_text() +
+ theme_classic() +
+ scale_x_discrete(expand=c(0,0)) +
+ scale_y_discrete(expand=c(0,0)) +
+ theme(axis.text.x = element_text(angle = 90))
+
+```
+
+**Observation:** From the correlation matrix we can see that there is no single attribute/feature of a track having a high correlation with the popularity of the track. There is a very moderate correlation between the track popularity and the acousticness of the track but since the correlation is weak, we cannot have the acoustics as a measure for determining the popularity of a track.
+
+Following this, we moved ahead to build a regression model to check the relationship between the various attributes of a track and the track popularity to see if we can attempt to predict the popularity of a track.
+
+## Linear Regression Model
+
+#### Creating dummy variable for Playlist Genre
+
+```{r dummy for playlist_genre}
+
+spotify_songs$genre_rap <- ifelse(spotify_songs$playlist_genre == 'rap', 1, 0)
+spotify_songs$genre_rnb <- ifelse(spotify_songs$playlist_genre == 'r&b', 1, 0)
+spotify_songs$genre_pop <- ifelse(spotify_songs$playlist_genre == 'pop', 1, 0)
+spotify_songs$genre_latin <- ifelse(spotify_songs$playlist_genre == 'latin', 1, 0)
+spotify_songs$genre_edm <- ifelse(spotify_songs$playlist_genre == 'edm', 1, 0)
+```
+
+#### Build Linear Regression Model
+
+Y is track popularity.
+
+Xs are danceability, energy, loudness, speechiness, acousticness, instrumentalness, liveness, valence, tempo, duration_ms, genre_rap, genre_rnb, genre_pop, genre_latin, and genre_edm
+
+```{r linear regression model}
+
+model <- lm(track_popularity ~ danceability + energy + loudness + speechiness + acousticness + instrumentalness + liveness + valence + tempo + duration_ms + genre_rap + genre_rnb + genre_pop + genre_latin + genre_edm, data=spotify_songs)
+
+#view regression model output
+summary(model)
+```
+
+**Observation:** A linear regression model describes the relationship between a *dependent variable*, *y*, and one or more *independent variables*, *X*. With 32817 degrees of freedom, we found that the f value is 217.8 and p value was found to be less than 2.2e-16. The regression model has an extremely low adjusted R-squared value suggesting that the input variables are not good indicators of song popularity. This makes sense when referencing the correlation heat map as we saw very weak correlations between all the variables and song popularity.
+
+## Conclusion
+
+We would like to start off by acknowledging some potential sources of bias in our analysis. First of which is that our data only covers songs from six genres, it is common knowledge that there are far more than six main genres in music and therefore we must preface our conlusion's with the fact that they only apply to songs in the genres of pop, edm, latin, R&B, rock, and rap. We cannot extrapolate these findings to songs in other genres. As far as our personal biases for the research, our team went in to this project thinking that the trends and correlations within the music would be very strongly defined. However, as the project matured and our analysis became more defined we realized that the trends may not be as significant as we initially thought they would be.
+
+In our exploratory analysis we investigated the distribution of our data as well as interactions between some of the variables. The data was relatively uniformly distributed accross the 6 genres. However, we did find that at the artist level we had a few artists with far more songs in the data than some of the others these were Martin Garrix, Queen, and The Chainsmokers. This means that across the playlists sampled for to create our data set these artists were the most popular. In addition to this we looked at the interactions between variables. We found that there is a "sweet spot" for song duration meaning that songs that lie within 187819 ms and 253585 ms tend to be more popular than songs that lie outside of this range. Furthermore, we found out that the most popular genre happened to be the electronic dance music(EDM). We also found that songs that came from albums in June and July are considerably more popular than songs that came from albums released earlier in the year. Lastly we created a correlation heat map to see how our variables are correlated with each other and this is where discovered that there are fairly weak correlations between most of the variables. There are no strong correlations between any of the song features and popularity however, there are some strong correlations between a few of the features themselves. For example energy is positively correlated with loudness and acousticness is negatively correlated with both energy and loudness. These correlations are not so surprising because as music listeners as we know that energetic songs tend to be louder and acoustic songs are generally more quiet and have much less energy.
+
+Moving forward with our analysis we fit a regression model to see if we could reliably predict song popularity based off of the various features in our data set. The multiple regression model had an adjusted R-squared value of 0.09 which is extremely low and means that we were only able to account for 9% of the variability in song popularity using song features as predictors. Due to this we can conclude that a song's features are not a good indicator of the song's popularity. This result is expected as our correlation heat map shows that there are no strong correlations between song features and popularity. To wrap things up through our exploratory analysis we were able to find interesting trends in the data relating to release date, genre, and artist popularity however, when it came to predicting song popularity there were not strong enough correlations in the data and therefore our model was fairly inaccurate.
+
+```{r session_info}
+sessionInfo()
+```
